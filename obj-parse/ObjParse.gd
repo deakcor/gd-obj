@@ -160,14 +160,12 @@ static func _get_image(mtl_filepath:String, tex_filename:String)->Image:
 
 static func _create_texture(data:PackedByteArray):
 	var img:Image = Image.new()
-	var tex:ImageTexture = ImageTexture.new()
 	img.load_png_from_buffer(data)
-	tex.create_from_image(img)
+	var tex:ImageTexture = ImageTexture.create_from_image(img)
 	return tex
 
 static func _get_texture(mtl_filepath, tex_filename):
-	var tex = ImageTexture.new()
-	tex.create_from_image(_get_image(mtl_filepath, tex_filename))
+	var tex = ImageTexture.create_from_image(_get_image(mtl_filepath, tex_filename))
 	if debug:
 		print("    Debug: texture is " + str(tex))
 	return tex
