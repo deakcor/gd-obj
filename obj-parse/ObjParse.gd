@@ -47,13 +47,13 @@ static func get_mtl_tex(mtl_path:String)->Dictionary:
 	var textures := {}
 	for k in file_paths:
 		var img=_get_image(mtl_path, k)
-		if img.is_empty():
+		if !img is Image or img.is_empty():
 			continue
 		textures[k] = img.save_png_to_buffer()
 	return textures
 
 #Get textures paths from mtl path
-static func get_mtl_tex_paths(mtl_path:String)->Array:
+static func get_mtl_tex_paths(mtl_path:String, global:=false)->Array:
 	var file := FileAccess.open(mtl_path, FileAccess.READ)
 	var paths := []
 	if file.get_open_error()==OK:
@@ -63,6 +63,10 @@ static func get_mtl_tex_paths(mtl_path:String)->Array:
 			var parts = line.split(" ", false,1)
 			if parts.size()<2:
 				continue
+			parts[1] = parts[1].strip_escapes()
+			if global:
+				if parts[1].is_relative_path():
+					parts[1] = mtl_path.get_base_dir().path_join(parts[1])
 			var key = parts[0].to_lower().strip_escapes()
 			if key in _get_map_keys():
 				if !parts[1] in paths:
@@ -118,7 +122,7 @@ static func _create_mtl(obj:String,textures:Dictionary)->Dictionary:
 				if parts.size()<2:
 					continue
 				if key in _get_map_keys():
-					var path=parts[1].to_lower().strip_escapes()
+					var path:String=parts[1].strip_escapes()
 					if textures.has(path) and currentMat:
 						match key:
 							"disp","map_disp":
@@ -130,7 +134,6 @@ static func _create_mtl(obj:String,textures:Dictionary)->Dictionary:
 							"map_kd":
 								currentMat.albedo_texture = _create_texture(textures[path])
 							"map_bump","map_normal","bump":
-								print(currentMat.normal_enabled)
 								currentMat.normal_enabled = true
 								currentMat.normal_texture = _create_texture(textures[path])
 							"map_ks":
@@ -154,17 +157,20 @@ static func _get_image(mtl_filepath:String, tex_filename:String)->Image:
 	if debug:
 		print("    Debug: texture file path: " + texfilepath + " of type " + filetype)
 	
-	var img:Image = Image.new()
-	var err=img.load(texfilepath)
+	var img:Image = Image.load_from_file(texfilepath)
 	return img
 
-static func _create_texture(data:PackedByteArray):
-	var img:Image = Image.new()
-	img.load_png_from_buffer(data)
-	var tex:ImageTexture = ImageTexture.create_from_image(img)
-	return tex
+static func _create_texture(data)->Texture2D:
+	if data is Texture2D:
+		return data
+	if data is PackedByteArray:
+		var img:Image = Image.new()
+		img.load_png_from_buffer(data)
+		var tex:ImageTexture = ImageTexture.create_from_image(img)
+		return tex
+	return null
 
-static func _get_texture(mtl_filepath, tex_filename):
+static func _get_texture(mtl_filepath, tex_filename)->Texture2D:
 	var tex = ImageTexture.create_from_image(_get_image(mtl_filepath, tex_filename))
 	if debug:
 		print("    Debug: texture is " + str(tex))
@@ -240,10 +246,13 @@ static func _create_obj(obj:String,mats:Dictionary)->Mesh:
 					var points = []
 					for map in parts:
 						var vertices_index = map.split("/")
+						if !vertices_index.size()>2:
+							continue
 						if (str(vertices_index[0]) != "f"):
 							var point = []
 							point.append(int(vertices_index[0])-1)
-							point.append(int(vertices_index[1])-1)
+							if (vertices_index.size()>1):
+								point.append(int(vertices_index[1])-1)
 							if (vertices_index.size()>2):
 								point.append(int(vertices_index[2])-1)
 							points.append(point)
@@ -256,9 +265,12 @@ static func _create_obj(obj:String,mats:Dictionary)->Mesh:
 							face["v"].append(point0[0])
 							face["v"].append(point2[0])
 							face["v"].append(point1[0])
-							face["vt"].append(point0[1])
-							face["vt"].append(point2[1])
-							face["vt"].append(point1[1])
+							if (point0.size()>1):
+								face["vt"].append(point0[1])
+							if (point2.size()>1):
+								face["vt"].append(point2[1])
+							if (point1.size()>1):
+								face["vt"].append(point1[1])
 							if (point0.size()>2):
 								face["vn"].append(point0[2])
 							if (point2.size()>2):
@@ -279,7 +291,7 @@ static func _create_obj(obj:String,mats:Dictionary)->Mesh:
 			mats[matgroup]=StandardMaterial3D.new()
 		st.set_material(mats[matgroup])
 		for face in faces[matgroup]:
-			if (face["v"].size() == 3):
+			if (face["v"].size() > 2):
 				# Vertices
 				var fan_v = PackedVector3Array()
 				fan_v.append(vertices[face["v"][0]])
@@ -288,14 +300,14 @@ static func _create_obj(obj:String,mats:Dictionary)->Mesh:
 
 				# Normals
 				var fan_vn = PackedVector3Array()
-				if face["vn"].size()>0:
+				if face["vn"].size()>2:
 					fan_vn.append(normals[face["vn"][0]])
 					fan_vn.append(normals[face["vn"][2]])
 					fan_vn.append(normals[face["vn"][1]])
 
 				# Textures
 				var fan_vt = PackedVector2Array()
-				if face["vt"].size()>0:
+				if face["vt"].size()>2:
 					for k in [0,2,1]:
 						var f = face["vt"][k]
 						if f>-1 and f<uvs.size():
